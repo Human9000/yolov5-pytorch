@@ -184,10 +184,30 @@ class YOLOLoss(nn.Module):
         if n != 0:
             #---------------------------------------------------------------#
             #   计算预测结果和真实结果的giou，计算对应有真实框的先验框的giou损失
-            #                         loss_cls计算对应有真实框的先验框的分类损失
+            #                     loss_cls计算对应有真实框的先验框的分类损失
             #----------------------------------------------------------------#
-            giou        = self.box_giou(pred_boxes, y_true[..., :4]).type_as(x)
+            giou        = self.box_giou(pred_boxes, y_true[..., :4]).type_as(x) 
             loss_loc    = torch.mean((1 - giou)[y_true[..., 4] == 1])
+            # loss_cls    = torch.mean(self.BCELoss(pred_cls[y_true[..., 4] == 1], self.smooth_labels(y_true[..., 5:][y_true[..., 4] == 1], self.label_smoothing, self.num_classes)))
+            # 分类改成 缩小类内距离, 扩大类间距离
+            # 按照标签的id,将预测值的cls特征分成多组, 组内计算特征均值和方差[groups, -1, channels] -> E [groups, channels], D [groups, channels]
+            # 每个通道的误差= 多组方差的均值 + 多组特征均值的方差 ED + DE [groups, channels] -> [channels]
+            # 所有通道的误差求均值
+            # 误差越小, 类内距离越小, 类间距离越大
+            # 误差越大, 类内距离越大, 类间距离越小
+            # 1、分组
+            # cls_true = y_true[..., 5][y_true[..., 4] == 1] # 有真实框的先验框的类别  
+            # # # 2、one-hot 转 id
+            # cls_true = torch.argmax(cls_true, dim=-1)  
+            # # # 3、分组求均值和方差
+            # E = [torch.mean(pred_cls[cls_true==id, :], dim=0) for id in range(self.num_classes) if torch.sum(cls_true==id) > 0] # [num_classes, channels]
+            # D = [torch.std(pred_cls[cls_true==id, :], dim=0) for id in range(self.num_classes) if torch.sum(cls_true==id) > 0]  # [num_classes, channels]
+            # # # 4、计算误差
+            # E = torch.stack(E, dim=0) # [num_classes, channels]
+            # D = torch.stack(D, dim=0) # [num_classes, channels]
+            # ED = torch.std(E, dim=0) # [channels] # 类内差
+            # DE = torch.mean(D, dim=0) # [channels] # 类间差
+            # loss_cls = torch.mean(ED - DE)  # [1] 无监督分类损失            
             loss_cls    = torch.mean(self.BCELoss(pred_cls[y_true[..., 4] == 1], self.smooth_labels(y_true[..., 5:][y_true[..., 4] == 1], self.label_smoothing, self.num_classes)))
             loss        += loss_loc * self.box_ratio + loss_cls * self.cls_ratio
             #-----------------------------------------------------------#
@@ -352,6 +372,16 @@ class YOLOLoss(nn.Module):
         pred_boxes_h    = torch.unsqueeze((h * 2) ** 2 * anchor_h, -1)
         pred_boxes      = torch.cat([pred_boxes_x, pred_boxes_y, pred_boxes_w, pred_boxes_h], dim = -1)
         return pred_boxes
+
+# YOLOLoss类的loss计算算法主要分为以下几步：
+# 1. 计算预测框和真实框的重合程度（iou）
+# 2. 计算预测框和真实框的中心点偏差
+# 3. 计算预测框和真实框的宽高比
+# 4. 计算分类损失
+# 5. 计算置信度损失
+# 6. 计算总损失
+
+
 
 def is_parallel(model):
     # Returns True if model is of type DP or DDP

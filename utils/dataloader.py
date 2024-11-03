@@ -55,22 +55,22 @@ class YoloDataset(Dataset):
         else:
             image, box      = self.get_random_data(self.annotation_lines[index], self.input_shape, random = self.train)
 
-        image       = np.transpose(preprocess_input(np.array(image, dtype=np.float32)), (2, 0, 1))
-        box         = np.array(box, dtype=np.float32)
+        image       = np.transpose(preprocess_input(np.array(image, dtype=np.float32)), (2, 0, 1)) # 将图像转换为(2, 0, 1)的格式
+        box         = np.array(box, dtype=np.float32) # 将框转换为float32类型
         if len(box) != 0:
             #---------------------------------------------------#
             #   对真实框进行归一化，调整到0-1之间
             #---------------------------------------------------#
-            box[:, [0, 2]] = box[:, [0, 2]] / self.input_shape[1]
-            box[:, [1, 3]] = box[:, [1, 3]] / self.input_shape[0]
+            box[:, [0, 2]] = box[:, [0, 2]] / self.input_shape[1] # 将框的x坐标归一化到0-1之间
+            box[:, [1, 3]] = box[:, [1, 3]] / self.input_shape[0] # 将框的y坐标归一化到0-1之间
             #---------------------------------------------------#
             #   序号为0、1的部分，为真实框的中心
             #   序号为2、3的部分，为真实框的宽高
             #   序号为4的部分，为真实框的种类
             #---------------------------------------------------#
-            box[:, 2:4] = box[:, 2:4] - box[:, 0:2]
-            box[:, 0:2] = box[:, 0:2] + box[:, 2:4] / 2
-        y_true = self.get_target(box)
+            box[:, 2:4] = box[:, 2:4] - box[:, 0:2] # 计算框的宽高
+            box[:, 0:2] = box[:, 0:2] + box[:, 2:4] / 2 # 计算框的中心点
+        y_true = self.get_target(box) # 获取目标框
         return image, box, y_true
 
     def rand(self, a=0, b=1):
@@ -394,18 +394,27 @@ class YoloDataset(Dataset):
         #-----------------------------------------------------------#
         #   一共有三个特征层数
         #-----------------------------------------------------------#
-        num_layers  = len(self.anchors_mask)
+        #  targets的格式为shape=[-1, 5]：
+        #   x:[-1,0], y:[-1,1]，为真实框的中心(x,y)
+        #   w:[-1,2], h:[-1,3]，为真实框的宽高(w,h)
+        #   c:[-1,4]，为真实框的种类
+        #-----------------------------------------------------------#
+        num_layers  = len(self.anchors_mask) # 特征层数  anchors_mask    = [[6, 7, 8], [3, 4, 5], [0, 1, 2]]
         
-        input_shape = np.array(self.input_shape, dtype='int32')
-        grid_shapes = [input_shape // {0:32, 1:16, 2:8, 3:4}[l] for l in range(num_layers)]
-        y_true      = [np.zeros((len(self.anchors_mask[l]), grid_shapes[l][0], grid_shapes[l][1], self.bbox_attrs), dtype='float32') for l in range(num_layers)]
+        input_shape = np.array(self.input_shape, dtype='int32') # 输入图像的尺寸 (640,640)
+        grid_shapes = [input_shape // {0:32, 1:16, 2:8, 3:4}[l] for l in range(num_layers)] # 每个特征层的尺寸
+        y_true      = [np.zeros((len(self.anchors_mask[l]), grid_shapes[l][0], grid_shapes[l][1], self.bbox_attrs), dtype='float32') for l in range(num_layers)] # 初始化目标框
+        # y_true的格式为：
+        #   batch_size, 3, 20, 20, 5 + num_classes
+        #   batch_size, 3, 40, 40, 5 + num_classes
+        #   batch_size, 3, 80, 80, 5 + num_classes
         box_best_ratio = [np.zeros((len(self.anchors_mask[l]), grid_shapes[l][0], grid_shapes[l][1]), dtype='float32') for l in range(num_layers)]
         
         if len(targets) == 0:
             return y_true
         
         for l in range(num_layers):
-            in_h, in_w      = grid_shapes[l]
+            in_h, in_w      = grid_shapes[l] # 特征层的尺寸
             anchors         = np.array(self.anchors) / {0:32, 1:16, 2:8, 3:4}[l]
             
             batch_target = np.zeros_like(targets)
